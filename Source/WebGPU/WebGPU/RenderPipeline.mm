@@ -397,15 +397,13 @@ Ref<RenderPipeline> Device::createRenderPipeline(const WGPURenderPipelineDescrip
         }
     }
 
-    id<MTLDepthStencilState> mtlDepthStencilState = nil;
+    MTLDepthStencilDescriptor *depthStencilDescriptor = nil;
     if (auto depthStencil = descriptor.depthStencil) {
         mtlRenderPipelineDescriptor.depthAttachmentPixelFormat = Texture::pixelFormat(depthStencil->format);
 
-        auto depthStencilState = [MTLDepthStencilDescriptor new];
-        depthStencilState.depthCompareFunction = convertToMTLCompare(depthStencil->depthCompare);
-        depthStencilState.depthWriteEnabled = depthStencil->depthWriteEnabled;
-        // FIXME: set stencil state
-        mtlDepthStencilState = [m_device newDepthStencilStateWithDescriptor:depthStencilState];
+        depthStencilDescriptor = [MTLDepthStencilDescriptor new];
+        depthStencilDescriptor.depthCompareFunction = convertToMTLCompare(depthStencil->depthCompare);
+        depthStencilDescriptor.depthWriteEnabled = depthStencil->depthWriteEnabled;
     }
 
     mtlRenderPipelineDescriptor.rasterSampleCount = descriptor.multisample.count ?: 1;
@@ -433,7 +431,7 @@ Ref<RenderPipeline> Device::createRenderPipeline(const WGPURenderPipelineDescrip
     if (!renderPipelineState)
         return RenderPipeline::createInvalid(*this);
 
-    return RenderPipeline::create(renderPipelineState, mtlPrimitiveType, mtlIndexType, mtlFrontFace, mtlCullMode, mtlDepthStencilState, descriptor.vertex.bufferCount, *this);
+    return RenderPipeline::create(renderPipelineState, mtlPrimitiveType, mtlIndexType, mtlFrontFace, mtlCullMode, depthStencilDescriptor, descriptor.vertex.bufferCount, *this);
 }
 
 void Device::createRenderPipelineAsync(const WGPURenderPipelineDescriptor& descriptor, CompletionHandler<void(WGPUCreatePipelineAsyncStatus, Ref<RenderPipeline>&&, String&& message)>&& callback)
@@ -445,14 +443,15 @@ void Device::createRenderPipelineAsync(const WGPURenderPipelineDescriptor& descr
     });
 }
 
-RenderPipeline::RenderPipeline(id<MTLRenderPipelineState> renderPipelineState, MTLPrimitiveType primitiveType, std::optional<MTLIndexType> indexType, MTLWinding frontFace, MTLCullMode cullMode, id<MTLDepthStencilState> depthStencilState, uint32_t vertexShaderInputBufferCount, Device& device)
+RenderPipeline::RenderPipeline(id<MTLRenderPipelineState> renderPipelineState, MTLPrimitiveType primitiveType, std::optional<MTLIndexType> indexType, MTLWinding frontFace, MTLCullMode cullMode, MTLDepthStencilDescriptor *depthStencilDescriptor, uint32_t vertexShaderInputBufferCount, Device& device)
     : m_renderPipelineState(renderPipelineState)
     , m_device(device)
     , m_primitiveType(primitiveType)
     , m_indexType(indexType)
     , m_frontFace(frontFace)
     , m_cullMode(cullMode)
-    , m_depthStencilState(depthStencilState)
+    , m_depthStencilDescriptor(depthStencilDescriptor)
+    , m_depthStencilState([device.device() newDepthStencilStateWithDescriptor:depthStencilDescriptor])
     , m_vertexShaderInputBufferCount(vertexShaderInputBufferCount)
 {
 }
@@ -473,6 +472,27 @@ BindGroupLayout* RenderPipeline::getBindGroupLayout(uint32_t groupIndex)
 void RenderPipeline::setLabel(String&&)
 {
     // MTLRenderPipelineState's labels are read-only.
+}
+
+id<MTLDepthStencilState> RenderPipeline::depthStencilState() const
+{
+    ASSERT(m_depthStencilState);
+    return m_depthStencilState;
+}
+
+id<MTLDepthStencilState> RenderPipeline::depthStencilState(bool depthReadOnly, bool stencilReadOnly) const
+{
+    if (!depthReadOnly && !stencilReadOnly)
+        return depthStencilState();
+
+    MTLDepthStencilDescriptor *depthStencilDescriptor = [m_depthStencilDescriptor copy];
+    depthStencilDescriptor.depthWriteEnabled = !depthReadOnly;
+    if (stencilReadOnly) {
+        depthStencilDescriptor.frontFaceStencil.writeMask = 0;
+        depthStencilDescriptor.backFaceStencil.writeMask = 0;
+    }
+
+    return [m_device->device() newDepthStencilStateWithDescriptor:depthStencilDescriptor];
 }
 
 } // namespace WebGPU

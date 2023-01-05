@@ -35,10 +35,12 @@
 
 namespace WebGPU {
 
-RenderPassEncoder::RenderPassEncoder(id<MTLRenderCommandEncoder> renderCommandEncoder, NSUInteger visibilityResultBufferSize, Device& device)
+RenderPassEncoder::RenderPassEncoder(id<MTLRenderCommandEncoder> renderCommandEncoder, NSUInteger visibilityResultBufferSize, bool depthReadOnly, bool stencilReadOnly, Device& device)
     : m_renderCommandEncoder(renderCommandEncoder)
     , m_device(device)
     , m_visibilityResultBufferSize(visibilityResultBufferSize)
+    , m_depthReadOnly(depthReadOnly)
+    , m_stencilReadOnly(stencilReadOnly)
 {
 }
 
@@ -201,7 +203,7 @@ void RenderPassEncoder::setPipeline(const RenderPipeline& pipeline)
 
     [m_renderCommandEncoder setRenderPipelineState:pipeline.renderPipelineState()];
     if (pipeline.depthStencilState())
-        [m_renderCommandEncoder setDepthStencilState:pipeline.depthStencilState()];
+        [m_renderCommandEncoder setDepthStencilState:pipeline.depthStencilState(m_depthReadOnly, m_stencilReadOnly)];
     [m_renderCommandEncoder setCullMode:pipeline.cullMode()];
     [m_renderCommandEncoder setFrontFacingWinding:pipeline.frontFace()];
 }
